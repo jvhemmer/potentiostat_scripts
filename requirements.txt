@@ -1,4 +1,0 @@
-PySide6
-pyserial>=3.5
-
-# Install Admiral's platform-specific SquidstatPyLibrary wheel separately.
