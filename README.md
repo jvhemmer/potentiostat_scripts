@@ -43,3 +43,48 @@ Run `python ca_eis_sequence.py --help` for all options. Voltage, current, freque
 ## Safety
 
 Validate all potentials, frequency limits, amplitude, channel, cell connections, and instrument limits before running on a real cell. Command-line electrochemical parameters are required so hardware-affecting defaults are not silently chosen.
+
+## Chopped illumination CA
+
+`chopped_illumination.py` connects to an `AUTO_SHUTTER_V1` Arduino first, sets
+`SPEED 2000`, and leaves it blocked on standby. It then connects to the
+Squidstat. The instrument's `experimentStarting` signal releases this default
+schedule:
+
+```text
+t=0 s       CA starts; shutter blocked
+t=60 s      MOVE +315 degrees; illumination open
+t=120 s     MOVE +45 degrees; illumination blocked
+t=180 s     MOVE +315 degrees; illumination open
+t=240 s     MOVE +45 degrees; illumination blocked
+t=300 s     MOVE +315 degrees; illumination open
+t=360 s     MOVE +45 degrees; illumination blocked
+t=362 s     CA ends after the default 2 s closing hold
+```
+
+Example for Windows PowerShell:
+
+```powershell
+python .\chopped_illumination.py `
+  --potentiostat-port COM16 `
+  --arduino-port COM3 `
+  --channel 0 `
+  --potential-v 0.20 `
+  --sample-rate-hz 10 `
+  --save-path 'C:\Users\Wilson Lab\Documents\chopped_ca.csv'
+```
+
+Omit `--arduino-port` to find the controller through its firmware `ID`
+handshake. If `--save-path` is omitted, a folder-selection dialog appears
+after both devices are ready. Selecting a folder starts the experiment and
+creates a timestamped CSV there. Cancelling the dialog exits without starting
+the CA. Main CSV includes CA data and illumination state. A second
+`*_shutter_events.csv` file records scheduled and actual movement times.
+
+Useful options include `--potential-vs-ocp`, `--expected-max-current-a`,
+`--max-absolute-current-a`, `--cycle-time-s`, `--loops`, `--speed`,
+`--ca-duration-s`, `--overwrite`, `--buffered-save`, `--no-save`, and
+`--print-data`. Run `python .\chopped_illumination.py --help` for details.
+
+The default CA duration is 362 s: 360 s for three complete chopped loops plus
+2 s so the final closing movement finishes before the potentiostat stops.
