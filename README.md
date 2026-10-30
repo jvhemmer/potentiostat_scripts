@@ -104,6 +104,16 @@ creates a timestamped CSV there. Cancelling the dialog exits without starting
 the CA. Main CSV includes CA data and illumination state. A second
 `*_shutter_events.csv` file records scheduled and actual movement times.
 
+A live dashboard opens before acquisition starts. It plots working-electrode
+voltage, current, and shutter state against elapsed time using Squidstat's
+real-time `activeDCDataReady` signal. The shutter axis uses `0 = blocked`,
+`0.5 = moving`, and `1 = open`. Closing the plot window does not stop the
+experiment. A red **Stop measurement** button asks for confirmation, aborts
+the shutter schedule, stops the Squidstat experiment, and exits the script.
+If stopped while illuminated or moving, verify the laser path is blocked.
+Use `--no-ui` for headless operation or `--plot-refresh-ms` to change the
+display refresh interval; acquisition rate is unchanged.
+
 Useful options include `--potential-vs-ocp`, `--expected-max-current-a`,
 `--max-absolute-current-a`, `--cycle-time-s`, `--loops`, `--speed`,
 `--ca-duration-s`, `--overwrite`, `--buffered-save`, `--no-save`, and

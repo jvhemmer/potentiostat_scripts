@@ -129,6 +129,29 @@ class ChoppedIlluminationTests(unittest.TestCase):
             self.assertTrue((Path(temp_dir) / "run.csv").exists())
             self.assertTrue((Path(temp_dir) / "run_shutter_events.csv").exists())
 
+    def test_recorder_exposes_live_plot_history(self):
+        settings = self.parse()
+        recorder = chopped.DataRecorder(settings)
+        recorder.start(0.0)
+        recorder.dc_data(
+            0,
+            SimpleNamespace(
+                timestamp=1.0,
+                workingElectrodeVoltage=0.2,
+                counterElectrodeVoltage=0.3,
+                current=0.004,
+                temperature=25.0,
+            ),
+        )
+        recorder.set_state("open")
+        times, voltages, currents, states, current_state = recorder.snapshot()
+        self.assertEqual(voltages, [0.2])
+        self.assertEqual(currents, [0.004])
+        self.assertEqual(current_state, "open")
+        self.assertEqual(states[-1][1], "open")
+        self.assertEqual(len(times), 1)
+        recorder.close()
+
     def test_auto_shutter_commands_match_firmware_protocol(self):
         serial = FakeSerial([b"SPEED SET\n", b"MOVING\n", b"DONE\n"])
         shutter = chopped.AutoShutterClient(serial)

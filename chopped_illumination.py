@@ -50,6 +50,8 @@ class Settings:
     overwrite: bool
     buffered_save: bool
     print_data: bool
+    show_ui: bool
+    plot_refresh_ms: int
 
 
 @dataclass(frozen=True)
@@ -140,6 +142,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="do not flush CSV files after every row",
     )
     parser.add_argument("--print-data", action="store_true")
+    parser.add_argument("--no-ui", action="store_true", help="disable live plots")
+    parser.add_argument("--plot-refresh-ms", type=positive_int, default=250)
     return parser
 
 
@@ -196,6 +200,8 @@ def settings_from_args(args: argparse.Namespace, parser: argparse.ArgumentParser
         overwrite=args.overwrite,
         buffered_save=args.buffered_save,
         print_data=args.print_data,
+        show_ui=not args.no_ui,
+        plot_refresh_ms=args.plot_refresh_ms,
     )
 
 
@@ -371,6 +377,10 @@ class DataRecorder:
         self._event_file = None
         self._data_writer = None
         self._event_writer = None
+        self._elapsed_history: list[float] = []
+        self._voltage_history: list[float] = []
+        self._current_history: list[float] = []
+        self._state_history: list[tuple[float, str]] = []
 
         if settings.save_path is not None:
             path = settings.save_path.expanduser().resolve()
@@ -395,6 +405,7 @@ class DataRecorder:
     def start(self, start_time: float) -> None:
         with self._lock:
             self._start_time = start_time
+            self._state_history = [(0.0, self.state)]
 
     def elapsed(self) -> float:
         with self._lock:
@@ -404,6 +415,24 @@ class DataRecorder:
     def set_state(self, state: str) -> None:
         with self._lock:
             self.state = state
+            elapsed = (
+                0.0
+                if self._start_time is None
+                else time.monotonic() - self._start_time
+            )
+            self._state_history.append((elapsed, state))
+
+    def snapshot(
+        self,
+    ) -> tuple[list[float], list[float], list[float], list[tuple[float, str]], str]:
+        with self._lock:
+            return (
+                list(self._elapsed_history),
+                list(self._voltage_history),
+                list(self._current_history),
+                list(self._state_history),
+                self.state,
+            )
 
     def record_event(self, action: ShutterAction, result: str) -> None:
         row = {
@@ -427,6 +456,10 @@ class DataRecorder:
             state = self.state
             start_time = self._start_time
         elapsed = 0.0 if start_time is None else time.monotonic() - start_time
+        with self._lock:
+            self._elapsed_history.append(elapsed)
+            self._voltage_history.append(float(data.workingElectrodeVoltage))
+            self._current_history.append(float(data.current))
         row = {
             "elapsed_s": elapsed,
             "instrument_timestamp_s": data.timestamp,
@@ -451,6 +484,197 @@ class DataRecorder:
             self._data_file.close()
         if self._event_file is not None:
             self._event_file.close()
+
+
+class LivePlotWindow:
+    """Small QtCharts dashboard fed by DataRecorder's in-memory history."""
+
+    STATE_LEVELS = {
+        "blocked": 0.0,
+        "moving_to_blocked": 0.5,
+        "moving_to_open": 0.5,
+        "open": 1.0,
+    }
+
+    def __init__(
+        self,
+        recorder: DataRecorder,
+        refresh_ms: int,
+        qt_core: Any,
+        qt_gui: Any,
+        qt_widgets: Any,
+        qt_charts: Any,
+    ) -> None:
+        self.recorder = recorder
+        self.qt_core = qt_core
+        self.qt_widgets = qt_widgets
+        self._stop_callback: Any = None
+        self.window = qt_widgets.QMainWindow()
+        self.window.setWindowTitle("SquidStat Chopped Illumination")
+        self.window.resize(1050, 900)
+
+        central = qt_widgets.QWidget()
+        layout = qt_widgets.QVBoxLayout(central)
+        self.status = qt_widgets.QLabel("Waiting for CA data; shutter blocked")
+        self.status.setStyleSheet("font-size: 14px; font-weight: bold; padding: 6px;")
+        layout.addWidget(self.status)
+        self.stop_button = qt_widgets.QPushButton("Stop measurement")
+        self.stop_button.setStyleSheet(
+            "QPushButton { background: #b71c1c; color: white; font-weight: bold; "
+            "padding: 10px; border-radius: 4px; }"
+            "QPushButton:disabled { background: #777; }"
+        )
+        self.stop_button.clicked.connect(self._confirm_stop)
+        self.stop_button.setEnabled(False)
+        self.stop_button.setText("Waiting for measurement...")
+        layout.addWidget(self.stop_button)
+
+        (
+            self.voltage_series,
+            self.voltage_x_axis,
+            self.voltage_y_axis,
+            voltage_view,
+        ) = self._make_chart(qt_charts, qt_gui, "Voltage vs time", "Voltage (V)")
+        (
+            self.current_series,
+            self.current_x_axis,
+            self.current_y_axis,
+            current_view,
+        ) = self._make_chart(qt_charts, qt_gui, "Current vs time", "Current (A)")
+        (
+            self.shutter_series,
+            self.shutter_x_axis,
+            self.shutter_y_axis,
+            shutter_view,
+        ) = self._make_chart(
+            qt_charts,
+            qt_gui,
+            "Shutter state vs time",
+            "0 blocked | 0.5 moving | 1 open",
+        )
+        self.shutter_y_axis.setRange(-0.05, 1.05)
+        self.shutter_y_axis.setTickCount(3)
+
+        layout.addWidget(voltage_view, 1)
+        layout.addWidget(current_view, 1)
+        layout.addWidget(shutter_view, 1)
+        self.window.setCentralWidget(central)
+
+        self.timer = qt_core.QTimer(self.window)
+        self.timer.timeout.connect(self.refresh)
+        self.timer.start(refresh_ms)
+
+    def _make_chart(
+        self,
+        qt_charts: Any,
+        qt_gui: Any,
+        title: str,
+        y_title: str,
+    ) -> tuple[Any, Any, Any, Any]:
+        series = qt_charts.QLineSeries()
+        chart = qt_charts.QChart()
+        chart.setTitle(title)
+        chart.legend().hide()
+        chart.addSeries(series)
+
+        x_axis = qt_charts.QValueAxis()
+        x_axis.setTitleText("Elapsed time (s)")
+        x_axis.setRange(0.0, 60.0)
+        y_axis = qt_charts.QValueAxis()
+        y_axis.setTitleText(y_title)
+        y_axis.setRange(-1.0, 1.0)
+        chart.addAxis(x_axis, self.qt_core.Qt.AlignmentFlag.AlignBottom)
+        chart.addAxis(y_axis, self.qt_core.Qt.AlignmentFlag.AlignLeft)
+        series.attachAxis(x_axis)
+        series.attachAxis(y_axis)
+
+        view = qt_charts.QChartView(chart)
+        view.setRenderHint(qt_gui.QPainter.RenderHint.Antialiasing)
+        return series, x_axis, y_axis, view
+
+    @staticmethod
+    def _set_value_range(axis: Any, values: list[float]) -> None:
+        if not values:
+            axis.setRange(-1.0, 1.0)
+            return
+        low = min(values)
+        high = max(values)
+        if low == high:
+            padding = max(abs(low) * 0.05, 1e-9)
+        else:
+            padding = (high - low) * 0.08
+        axis.setRange(low - padding, high + padding)
+
+    def refresh(self) -> None:
+        times, voltages, currents, state_history, state = self.recorder.snapshot()
+        if times:
+            voltage_points = [
+                self.qt_core.QPointF(elapsed, value)
+                for elapsed, value in zip(times, voltages)
+            ]
+            current_points = [
+                self.qt_core.QPointF(elapsed, value)
+                for elapsed, value in zip(times, currents)
+            ]
+            self.voltage_series.replace(voltage_points)
+            self.current_series.replace(current_points)
+            self._set_value_range(self.voltage_y_axis, voltages)
+            self._set_value_range(self.current_y_axis, currents)
+            self.status.setText(
+                f"t={times[-1]:.1f} s | E={voltages[-1]:.6g} V | "
+                f"I={currents[-1]:.6g} A | shutter={state}"
+            )
+
+        state_points: list[Any] = []
+        previous_level: float | None = None
+        for elapsed, state_name in state_history:
+            level = self.STATE_LEVELS.get(state_name, 0.5)
+            if previous_level is not None:
+                state_points.append(self.qt_core.QPointF(elapsed, previous_level))
+            state_points.append(self.qt_core.QPointF(elapsed, level))
+            previous_level = level
+        if state_points:
+            state_points.append(
+                self.qt_core.QPointF(self.recorder.elapsed(), previous_level)
+            )
+            self.shutter_series.replace(state_points)
+
+        elapsed_max = max(self.recorder.elapsed(), times[-1] if times else 0.0)
+        x_max = max(60.0, elapsed_max + 5.0)
+        for axis in (
+            self.voltage_x_axis,
+            self.current_x_axis,
+            self.shutter_x_axis,
+        ):
+            axis.setRange(0.0, x_max)
+
+    def show(self) -> None:
+        self.window.show()
+
+    def set_stop_callback(self, callback: Any) -> None:
+        self._stop_callback = callback
+
+    def measurement_started(self) -> None:
+        self.stop_button.setText("Stop measurement")
+        self.stop_button.setEnabled(True)
+
+    def _confirm_stop(self) -> None:
+        answer = self.qt_widgets.QMessageBox.question(
+            self.window,
+            "Stop measurement?",
+            "Stop the SquidStat measurement and shutter-control sequence?\n\n"
+            "If the shutter is not blocked, verify the laser path manually.",
+            self.qt_widgets.QMessageBox.StandardButton.Yes
+            | self.qt_widgets.QMessageBox.StandardButton.No,
+            self.qt_widgets.QMessageBox.StandardButton.No,
+        )
+        if answer != self.qt_widgets.QMessageBox.StandardButton.Yes:
+            return
+        self.stop_button.setEnabled(False)
+        self.stop_button.setText("Stopping...")
+        self.status.setText("Stopping measurement and shutter sequence...")
+        if self._stop_callback is not None:
+            self._stop_callback()
 
 
 def wait_until(deadline: float, abort: threading.Event) -> None:
@@ -499,13 +723,18 @@ def timestamped_save_path(folder: Path) -> Path:
 def run(settings: Settings) -> int:
     try:
         qt_core = importlib.import_module("PySide6.QtCore")
+        qt_gui = importlib.import_module("PySide6.QtGui")
         qt_widgets = importlib.import_module("PySide6.QtWidgets")
+        qt_charts = (
+            importlib.import_module("PySide6.QtCharts") if settings.show_ui else None
+        )
         api = importlib.import_module("SquidstatPyLibrary")
     except ImportError as error:
         print(f"Missing Squidstat runtime dependency: {error}", file=sys.stderr)
         return 2
 
     app = qt_widgets.QApplication.instance() or qt_widgets.QApplication([])
+    app.setQuitOnLastWindowClosed(False)
     recorder: DataRecorder | None = None
     shutter: AutoShutterClient | None = None
     try:
@@ -525,6 +754,7 @@ def run(settings: Settings) -> int:
     schedule_failures: queue.Queue[str] = queue.Queue()
     schedule_thread: threading.Thread | None = None
     poll_timer = None
+    plot_window: LivePlotWindow | None = None
     exit_code = 0
     started = False
     cancelled = False
@@ -537,7 +767,8 @@ def run(settings: Settings) -> int:
         app.quit()
 
     def on_connected(device_name: str) -> None:
-        nonlocal started, schedule_thread, poll_timer, exit_code, recorder, cancelled
+        nonlocal started, schedule_thread, poll_timer, exit_code
+        nonlocal recorder, cancelled, plot_window
         if started:
             return
         started = True
@@ -569,6 +800,16 @@ def run(settings: Settings) -> int:
             fail(str(error))
             return
         active_recorder = recorder
+        user_stop_requested = False
+        if settings.show_ui:
+            plot_window = LivePlotWindow(
+                active_recorder,
+                settings.plot_refresh_ms,
+                qt_core,
+                qt_gui,
+                qt_widgets,
+                qt_charts,
+            )
 
         def on_experiment_starting(channel: int) -> None:
             nonlocal schedule_thread
@@ -577,6 +818,8 @@ def run(settings: Settings) -> int:
             start_time = time.monotonic()
             active_recorder.start(start_time)
             print("t=0: CA started; shutter blocked; illumination schedule released")
+            if plot_window is not None:
+                plot_window.measurement_started()
             schedule_thread = threading.Thread(
                 target=run_shutter_schedule,
                 args=(
@@ -597,7 +840,11 @@ def run(settings: Settings) -> int:
             nonlocal exit_code
             if channel != settings.channel:
                 return
-            if schedule_thread is not None and not schedule_completed.is_set():
+            if (
+                schedule_thread is not None
+                and not schedule_completed.is_set()
+                and not user_stop_requested
+            ):
                 exit_code = 1
                 print(
                     "CA stopped before shutter schedule completed; verify laser is blocked.",
@@ -606,6 +853,23 @@ def run(settings: Settings) -> int:
             print(f"Experiment stopped on channel {channel}: {reason}")
             abort.set()
             app.quit()
+
+        def request_user_stop() -> None:
+            nonlocal exit_code, user_stop_requested
+            if user_stop_requested:
+                return
+            user_stop_requested = True
+            abort.set()
+            print("User requested measurement stop.")
+            stop_error = handler.stopExperiment(settings.channel)
+            if stop_error.value() != api.AisErrorCode.Success:
+                exit_code = 1
+                print(f"Could not stop CA: {stop_error.message()}", file=sys.stderr)
+                app.quit()
+                return
+            # Normal path quits from experimentStopped. Fallback prevents a
+            # stalled device signal from leaving the UI running indefinitely.
+            qt_core.QTimer.singleShot(3000, app.quit)
 
         def poll_schedule() -> None:
             nonlocal exit_code
@@ -626,6 +890,10 @@ def run(settings: Settings) -> int:
         handler.deviceError.connect(
             lambda channel, error: fail(f"Squidstat error on channel {channel}: {error}")
         )
+        if plot_window is not None:
+            plot_window.set_stop_callback(request_user_stop)
+            plot_window.show()
+            app.processEvents()
         poll_timer = qt_core.QTimer()
         poll_timer.timeout.connect(poll_schedule)
         poll_timer.start(100)
