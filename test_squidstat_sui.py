@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from run_sui_sequence import chopped_settings, load_sequence
+from run_sui_sequence import chopped_settings, load_sequence, phase_label
 from squidstat_sui import SuiExperimentError, SuiExperimentLibrary
 
 
@@ -128,6 +128,16 @@ class SuiExperimentTests(unittest.TestCase):
         settings = chopped_settings(config, config["sequence"][1])
         self.assertEqual(settings.ca_duration_s, 362)
         self.assertEqual(settings.sample_interval_s, 0.1)
+
+    def test_phase_labels_do_not_read_ca_fields_from_sui_phase(self):
+        self.assertEqual(
+            phase_label({"type": "sui_experiment", "name": "TBAPF6 anodic CV"}),
+            "TBAPF6 anodic CV",
+        )
+        self.assertEqual(
+            phase_label({"type": "chopped_ca", "potential_v": -0.9}),
+            "Chopped CA -0.9 V",
+        )
 
 
 if __name__ == "__main__":

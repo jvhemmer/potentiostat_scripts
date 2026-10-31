@@ -170,6 +170,12 @@ def build_phase_experiment(api: Any, library: SuiExperimentLibrary, config: dict
     return wrapper
 
 
+def phase_label(phase: dict[str, Any]) -> str:
+    if phase["type"] == "sui_experiment":
+        return str(phase["name"])
+    return f"Chopped CA {phase['potential_v']:g} V"
+
+
 class SequenceRecorder:
     DC_FIELDS = ("workflow_elapsed_s", "phase_number", "phase_name", "phase_type", "instrument_timestamp_s", "illumination_state", "working_electrode_v", "counter_electrode_v", "current_a", "temperature_c")
     AC_FIELDS = ("workflow_elapsed_s", "phase_number", "phase_name", "frequency_hz", "impedance_magnitude_ohm", "impedance_real_ohm", "impedance_imag_ohm", "phase_angle_deg", "working_electrode_dc_v", "dc_current_a")
@@ -204,7 +210,7 @@ class SequenceRecorder:
             self._phase_start = start
             self.phase_number = number
             self.phase_type = phase["type"]
-            self.phase_name = phase.get("name", f"Chopped CA {phase['potential_v']:g} V")
+            self.phase_name = phase_label(phase)
 
     def start(self, start_time: float) -> None:
         with self._lock:
@@ -323,7 +329,7 @@ def run(config: dict[str, Any], library: SuiExperimentLibrary, destination: Path
             app.quit()
             return
         phase = phases[phase_index]
-        label = phase.get("name", f"Chopped CA {phase['potential_v']:g} V")
+        label = phase_label(phase)
         print(f"Starting phase {phase_index + 1}/{len(phases)}: {label}")
         try:
             require_success(handler.uploadExperimentToChannel(channel, experiments[phase_index]), api, f"upload phase {phase_index + 1}")
