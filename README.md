@@ -206,3 +206,58 @@ gets its own instrument start event, which defines shutter schedule `t=0`.
 
 Each run folder contains combined `dc.csv`, `eis.csv`, `shutter_events.csv`,
 and `sequence_used.json`. Rows identify their phase number and experiment name.
+
+### Generate a short chopped-CA potential sweep
+
+`make_chopped_ca_sweep.py` creates sequence JSON for any list of CA potentials.
+Each short CA contains three equal periods: shutter blocked, shutter open, then
+shutter blocked. With `--cycle-time-s 60`, it opens at 60 s, closes at 120 s,
+and finishes at 180 s. The named SUI conditioning experiment runs next.
+
+Example using `TBAPF6 anodic CV.json` after every CA:
+
+```powershell
+uv run --no-sync python .\make_chopped_ca_sweep.py `
+  --potentials-v -0.9 -1.0 -1.1 `
+  --cycle-time-s 60 `
+  --sample-rate-hz 10 `
+  --conditioning-experiment 'TBAPF6 anodic CV.json' `
+  --conditioning-repeats 1 `
+  --custom-experiments-directory 'C:\path\to\Custom Experiments' `
+  --potentiostat-port COM4 `
+  --output .\sequences\tbapf6_short_ca_sweep.json
+```
+
+Validate, then run generated sequence:
+
+```powershell
+uv run --no-sync python .\run_sui_sequence.py `
+  .\sequences\tbapf6_short_ca_sweep.json --validate-only
+
+uv run --no-sync python .\run_sui_sequence.py `
+  .\sequences\tbapf6_short_ca_sweep.json
+```
+
+`--conditioning-repeats` controls how many complete SUI CV experiments run.
+CV cycles, scan rate, and voltage limits remain defined by the SUI JSON file.
+Add `--skip-final-conditioning` when conditioning should occur only between CA
+measurements rather than after the final CA.
+
+For a one-command Windows workflow, edit the **USER SETTINGS** section near the
+top of `run_ca_chopped_sweep.py`. It contains the potential list, cycle time,
+conditioning experiment, COM ports, custom-experiment folder, current limits,
+and data destination. Then run without parameters:
+
+```powershell
+.\run_ca_chopped_sweep.ps1
+```
+
+Or run the Python file directly:
+
+```powershell
+uv run --no-sync python .\run_ca_chopped_sweep.py
+```
+
+The file creates `sequences/generated_ca_chopped_sweep.json`, validates the
+generated sequence and every referenced SUI experiment, then starts hardware
+only after validation passes. The generated JSON is replaced on each run.
