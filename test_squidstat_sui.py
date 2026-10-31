@@ -59,6 +59,10 @@ class SuiExperimentTests(unittest.TestCase):
         document = {"name": name, "description": "test", "elements": elements}
         (self.root / f"{name}.json").write_text(json.dumps(document), encoding="utf-8")
 
+    def write_file(self, filename, name, elements):
+        document = {"name": name, "description": "test", "elements": elements}
+        (self.root / filename).write_text(json.dumps(document), encoding="utf-8")
+
     def cv(self):
         return {
             "type": "element",
@@ -101,6 +105,21 @@ class SuiExperimentTests(unittest.TestCase):
         self.write("Parent", {"type": "set", "repeats": 1, "elements": [{"type": "element", "plugin-name": "Missing CV", "repeats": 1, "user-input": {}}]})
         with self.assertRaisesRegex(SuiExperimentError, "Missing CV"):
             SuiExperimentLibrary(self.root).build(API, "Parent")
+
+    def test_unrelated_duplicate_names_do_not_block_requested_experiment(self):
+        elements = {"type": "set", "repeats": 1, "elements": [self.cv()]}
+        self.write("Requested CV", elements)
+        self.write_file("old copy.json", "Unrelated CV", elements)
+        self.write_file("new copy.json", "Unrelated CV", elements)
+        experiment = SuiExperimentLibrary(self.root).build(API, "Requested CV")
+        self.assertEqual(experiment.name, "Requested CV")
+
+    def test_requested_duplicate_name_is_reported_as_ambiguous(self):
+        elements = {"type": "set", "repeats": 1, "elements": [self.cv()]}
+        self.write_file("first.json", "Duplicate CV", elements)
+        self.write_file("second.json", "Duplicate CV", elements)
+        with self.assertRaisesRegex(SuiExperimentError, "ambiguous"):
+            SuiExperimentLibrary(self.root).build(API, "Duplicate CV")
 
     def test_loads_cv_chopped_sequence(self):
         path = self.root / "sequence.json"

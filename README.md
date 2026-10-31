@@ -214,7 +214,7 @@ Each short CA contains three equal periods: shutter blocked, shutter open, then
 shutter blocked. With `--cycle-time-s 60`, it opens at 60 s, closes at 120 s,
 and finishes at 180 s. The named SUI conditioning experiment runs next.
 
-Example using `TBAPF6 anodic CV.json` after every CA:
+Example using `TBAPF6 anodic CV.json` before every CA:
 
 ```powershell
 uv run --no-sync python .\make_chopped_ca_sweep.py `
@@ -240,8 +240,9 @@ uv run --no-sync python .\run_sui_sequence.py `
 
 `--conditioning-repeats` controls how many complete SUI CV experiments run.
 CV cycles, scan rate, and voltage limits remain defined by the SUI JSON file.
-Add `--skip-final-conditioning` when conditioning should occur only between CA
-measurements rather than after the final CA.
+Default order is CV, chopped CA, CV, chopped CA, with no trailing CV. Add
+`--skip-initial-conditioning` to start with CA and condition only between later
+CA measurements.
 
 For a one-command Windows workflow, edit the **USER SETTINGS** section near the
 top of `run_ca_chopped_sweep.py`. It contains the potential list, cycle time,

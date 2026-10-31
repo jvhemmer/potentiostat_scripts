@@ -14,17 +14,17 @@ class ChoppedCaSweepTests(unittest.TestCase):
             conditioning_experiment="TBAPF6 anodic CV.json",
         )
         self.assertEqual(len(phases), 6)
-        for phase in phases[0::2]:
+        for phase in phases[1::2]:
             self.assertEqual(phase["type"], "chopped_ca")
             self.assertEqual(phase["loops"], 1)
             self.assertEqual(phase["ca_duration_s"], 180)
             self.assertEqual(phase["post_close_hold_s"], 0)
-        self.assertEqual([phase["potential_v"] for phase in phases[0::2]], [-0.9, -1.0, -1.1])
-        self.assertTrue(all(phase["name"] == "TBAPF6 anodic CV" for phase in phases[1::2]))
+        self.assertEqual([phase["potential_v"] for phase in phases[1::2]], [-0.9, -1.0, -1.1])
+        self.assertTrue(all(phase["name"] == "TBAPF6 anodic CV" for phase in phases[0::2]))
 
     def test_can_condition_only_between_measurements(self):
         phases = create_chopped_ca_sweep(
-            potentials_v=[-0.9, -1.0], condition_after_last=False
+            potentials_v=[-0.9, -1.0], condition_before_first=False
         )
         self.assertEqual([phase["type"] for phase in phases], ["chopped_ca", "sui_experiment", "chopped_ca"])
 
@@ -41,8 +41,8 @@ class ChoppedCaSweepTests(unittest.TestCase):
             ])
             self.assertEqual(result, 0)
             document = json.loads(output.read_text(encoding="utf-8"))
-            self.assertEqual(document["sequence"][0]["ca_duration_s"], 180)
-            self.assertEqual(document["sequence"][1]["name"], "TBAPF6 anodic CV")
+            self.assertEqual(document["sequence"][0]["name"], "TBAPF6 anodic CV")
+            self.assertEqual(document["sequence"][1]["ca_duration_s"], 180)
 
 
 if __name__ == "__main__":

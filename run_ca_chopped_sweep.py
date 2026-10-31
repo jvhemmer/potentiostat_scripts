@@ -34,10 +34,10 @@ POTENTIAL_VS_OCP = False
 EXPECTED_MAX_CURRENT_A: float | None = None
 MAX_ABSOLUTE_CURRENT_A: float | None = None
 
-# SUI conditioning experiment run after each CA
+# SUI conditioning experiment run before each CA
 CONDITIONING_EXPERIMENT = "TBAPF6 anodic CV.json"
 CONDITIONING_REPEATS = 1
-CONDITION_AFTER_FINAL_CA = True
+CONDITION_BEFORE_FIRST_CA = True
 
 # Shutter settings
 SHUTTER_SPEED = 2000
@@ -71,7 +71,7 @@ def create_sequence_document() -> dict[str, object]:
         potential_vs_ocp=POTENTIAL_VS_OCP,
         expected_max_current_a=EXPECTED_MAX_CURRENT_A,
         max_absolute_current_a=MAX_ABSOLUTE_CURRENT_A,
-        condition_after_last=CONDITION_AFTER_FINAL_CA,
+        condition_before_first=CONDITION_BEFORE_FIRST_CA,
     )
     return {
         "custom_experiments_directory": str(CUSTOM_EXPERIMENTS_DIRECTORY),

@@ -55,7 +55,7 @@ def create_chopped_ca_sweep(
     potential_vs_ocp: bool = False,
     expected_max_current_a: float | None = None,
     max_absolute_current_a: float | None = None,
-    condition_after_last: bool = True,
+    condition_before_first: bool = True,
 ) -> list[dict[str, object]]:
     """Build CA/conditioning phases without writing or running anything.
 
@@ -76,6 +76,14 @@ def create_chopped_ca_sweep(
     for index, potential in enumerate(potentials_v):
         if not math.isfinite(potential):
             raise ValueError("all CA potentials must be finite")
+        if condition_before_first or index > 0:
+            phases.append(
+                {
+                    "type": "sui_experiment",
+                    "name": conditioning_name,
+                    "repeat": conditioning_repeats,
+                }
+            )
         ca: dict[str, object] = {
             "type": "chopped_ca",
             "potential_v": float(potential),
@@ -91,14 +99,6 @@ def create_chopped_ca_sweep(
         if max_absolute_current_a is not None:
             ca["max_absolute_current_a"] = max_absolute_current_a
         phases.append(ca)
-        if condition_after_last or index < len(potentials_v) - 1:
-            phases.append(
-                {
-                    "type": "sui_experiment",
-                    "name": conditioning_name,
-                    "repeat": conditioning_repeats,
-                }
-            )
     return phases
 
 
@@ -121,12 +121,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--conditioning-repeats",
         type=positive_int,
         default=1,
-        help="number of complete CV conditioning runs after each CA",
+        help="number of complete CV conditioning runs before each CA",
     )
     parser.add_argument(
-        "--skip-final-conditioning",
+        "--skip-initial-conditioning",
         action="store_true",
-        help="condition only between CA measurements, not after the final CA",
+        help="start with CA; condition only between subsequent CA measurements",
     )
     parser.add_argument("--potential-vs-ocp", action="store_true")
     parser.add_argument("--expected-max-current-a", type=positive_float)
@@ -160,7 +160,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             potential_vs_ocp=args.potential_vs_ocp,
             expected_max_current_a=args.expected_max_current_a,
             max_absolute_current_a=args.max_absolute_current_a,
-            condition_after_last=not args.skip_final_conditioning,
+            condition_before_first=not args.skip_initial_conditioning,
         )
     except ValueError as error:
         parser.error(str(error))

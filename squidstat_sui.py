@@ -79,7 +79,7 @@ class SuiExperimentLibrary:
         self.directory = directory.expanduser().resolve()
         if not self.directory.is_dir():
             raise SuiExperimentError(f"custom experiment directory does not exist: {self.directory}")
-        self.documents: dict[str, tuple[Path, dict[str, Any]]] = {}
+        self.documents: dict[str, list[tuple[Path, dict[str, Any]]]] = {}
         for path in sorted(self.directory.rglob("*.json")):
             try:
                 document = json.loads(path.read_text(encoding="utf-8"))
@@ -88,20 +88,27 @@ class SuiExperimentLibrary:
             name = document.get("name")
             if not isinstance(name, str) or not name.strip():
                 continue
-            if name in self.documents:
-                other = self.documents[name][0]
-                raise SuiExperimentError(f"duplicate SUI experiment name {name!r}: {other} and {path}")
-            self.documents[name] = (path, document)
+            self.documents.setdefault(name, []).append((path, document))
 
     def names(self) -> list[str]:
         return sorted(self.documents)
 
     def source_path(self, name: str) -> Path:
-        try:
-            return self.documents[name][0]
-        except KeyError as error:
+        return self._document(name)[0]
+
+    def _document(self, name: str) -> tuple[Path, dict[str, Any]]:
+        matches = self.documents.get(name, [])
+        if not matches:
             available = ", ".join(self.names()) or "none"
-            raise SuiExperimentError(f"SUI experiment {name!r} not found; available: {available}") from error
+            raise SuiExperimentError(
+                f"SUI experiment {name!r} not found; available: {available}"
+            )
+        if len(matches) > 1:
+            paths = " and ".join(str(item[0]) for item in matches)
+            raise SuiExperimentError(
+                f"SUI experiment name {name!r} is ambiguous; found in {paths}"
+            )
+        return matches[0]
 
     def build(self, api: Any, name: str) -> Any:
         return self._build_named(api, name, ())
@@ -110,9 +117,13 @@ class SuiExperimentLibrary:
         if name in stack:
             raise SuiExperimentError("recursive SUI experiment reference: " + " -> ".join((*stack, name)))
         try:
-            _path, document = self.documents[name]
-        except KeyError as error:
-            raise SuiExperimentError(f"referenced custom experiment {name!r} was not found in {self.directory}") from error
+            _path, document = self._document(name)
+        except SuiExperimentError as error:
+            if not self.documents.get(name):
+                raise SuiExperimentError(
+                    f"referenced custom experiment {name!r} was not found in {self.directory}"
+                ) from error
+            raise
         root = document.get("elements")
         experiment = self._build_set(api, root, (*stack, name))
         root_repeats = root.get("repeats", 1) if isinstance(root, dict) else 1
