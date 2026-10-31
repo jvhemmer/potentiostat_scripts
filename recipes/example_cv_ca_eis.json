@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "name": "Example CV, CA, and EIS sequence",
+  "device": {
+    "port": "COM4",
+    "channel": 0
+  },
+  "output": {
+    "directory": "../data",
+    "run_name": "cv_ca_eis",
+    "timestamp": true
+  },
+  "steps": [
+    {
+      "type": "ocp",
+      "label": "Initial OCP",
+      "duration_s": 10,
+      "sample_interval_s": 1
+    },
+    {
+      "type": "cv",
+      "label": "Three CV cycles",
+      "start_v": 0,
+      "first_limit_v": 0.8,
+      "second_limit_v": -0.2,
+      "end_v": 0,
+      "scan_rate_v_per_s": 0.05,
+      "sample_interval_s": 0.1,
+      "cycles": 3,
+      "quiet_time_s": 2,
+      "quiet_sample_interval_s": 0.5,
+      "approx_max_current_a": 0.001
+    },
+    {
+      "type": "ca",
+      "label": "Constant potential hold",
+      "potential_v": 0.2,
+      "duration_s": 60,
+      "sample_rate_hz": 10,
+      "approx_max_current_a": 0.001
+    },
+    {
+      "type": "eis_potentiostatic",
+      "label": "Impedance spectrum",
+      "start_frequency_hz": 100000,
+      "end_frequency_hz": 0.1,
+      "steps_per_decade": 10,
+      "bias_v": 0.2,
+      "amplitude_v": 0.01,
+      "minimum_cycles": 2,
+      "quiet_time_s": 2,
+      "quiet_sample_interval_s": 0.5
+    }
+  ]
+}

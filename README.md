@@ -122,3 +122,87 @@ Useful options include `--potential-vs-ocp`, `--expected-max-current-a`,
 
 The default CA duration is 362 s: 360 s for three complete chopped loops plus
 2 s so the final closing movement finishes before the potentiostat stops.
+
+## Reusable experiment recipes
+
+`run_recipe.py` reads a JSON experiment recipe, validates it before touching
+the hardware, and builds one Squidstat experiment from its ordered `steps`.
+Supported step types are `ocp`, `cv`, `ca`, and `eis_potentiostatic`. Each step
+can also have a `label` and a positive integer `repeat`.
+
+Start by copying [`recipes/example_cv_ca_eis.json`](recipes/example_cv_ca_eis.json).
+It demonstrates all four step types and documents their field names through a
+working example. Change the values for the cell and instrument limits before
+use. JSON values use V, A, Hz, and s.
+
+Validate a recipe without connecting to the Squidstat:
+
+```powershell
+uv run --no-sync python .\run_recipe.py .\recipes\example_cv_ca_eis.json --validate-only
+```
+
+Run it:
+
+```powershell
+uv run --no-sync python .\run_recipe.py .\recipes\example_cv_ca_eis.json
+```
+
+The recipe contains the normal COM port, channel, and output settings. They
+can be overridden for one run without modifying the file:
+
+```powershell
+uv run --no-sync python .\run_recipe.py .\recipes\example_cv_ca_eis.json `
+  --port COM4 --channel 0 --output-dir 'C:\Users\Wilson Lab\Documents\run_001'
+```
+
+Every run folder contains `dc.csv`, `eis.csv`, and `recipe_used.json`.
+`recipe_used.json` records the normalized parameters and the actual port and
+channel after command-line overrides. By default, the output path is
+`runs/<recipe-name>_YYYYmmdd_HHMMSS` beside the recipe; the example redirects
+it to `data/cv_ca_eis_YYYYmmdd_HHMMSS` at the project root.
+
+## SquidStat SUI experiments plus chopped CA
+
+`run_sui_sequence.py` reads the JSON files exported by SquidStat's SUI. It
+supports the SUI formats for Open Circuit Potential, Constant Potential,
+Cyclic Voltammetry, and Potentiostatic EIS. Repeated nested sets are preserved.
+An SUI custom experiment may also reference another custom experiment by name;
+the runner finds that experiment in the same custom-experiment directory and
+adds it as a sub-experiment.
+
+Copy and edit
+[`sequences/example_cv_chopped_sequence.json`](sequences/example_cv_chopped_sequence.json).
+Its sequence is:
+
+1. one named SUI CV experiment;
+2. chopped CA at -1.2 V;
+3. the same SUI CV again;
+4. chopped CA at -1.3 V.
+
+Set `custom_experiments_directory` to the folder containing all referenced SUI
+JSON files. A nested custom experiment must be present there, even when only
+the parent experiment is named in the sequence.
+
+Validate names, nesting, parameters, and shutter timing without hardware:
+
+```powershell
+uv run --no-sync python .\run_sui_sequence.py `
+  .\sequences\example_cv_chopped_sequence.json --validate-only
+```
+
+Run the sequence:
+
+```powershell
+uv run --no-sync python .\run_sui_sequence.py `
+  .\sequences\example_cv_chopped_sequence.json
+```
+
+`--custom-experiments-directory`, `--port`, and `--output-dir` provide one-run
+overrides. `CUSTOM_EXPERIMENTS_DIRECTORY` and `EXPERIMENT_NAME` near the top of
+`run_sui_sequence.py` are editable Python defaults. Running the script without
+a sequence file runs that one named experiment; JSON sequence names take
+precedence when a file is supplied. The live plots and stop button remain available. Each chopped CA
+gets its own instrument start event, which defines shutter schedule `t=0`.
+
+Each run folder contains combined `dc.csv`, `eis.csv`, `shutter_events.csv`,
+and `sequence_used.json`. Rows identify their phase number and experiment name.

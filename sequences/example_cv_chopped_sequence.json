@@ -1,0 +1,45 @@
+{
+  "custom_experiments_directory": "C:\\Users\\Wilson Lab\\Documents\\Admiral Instruments\\Custom Experiments",
+  "device": {
+    "port": "COM4",
+    "channel": 0
+  },
+  "shutter": {
+    "port": null,
+    "speed": 2000,
+    "open_angle_deg": 315,
+    "close_angle_deg": 45
+  },
+  "output_directory": "../sequence_data",
+  "run_name": "cv_chopped_potential_series",
+  "sequence": [
+    {
+      "type": "sui_experiment",
+      "name": "ORR DME (rAu) 10mVps",
+      "repeat": 1
+    },
+    {
+      "type": "chopped_ca",
+      "potential_v": -1.2,
+      "sample_rate_hz": 10,
+      "cycle_time_s": 60,
+      "loops": 3,
+      "post_close_hold_s": 2,
+      "expected_max_current_a": 0.001
+    },
+    {
+      "type": "sui_experiment",
+      "name": "ORR DME (rAu) 10mVps",
+      "repeat": 1
+    },
+    {
+      "type": "chopped_ca",
+      "potential_v": -1.3,
+      "sample_rate_hz": 10,
+      "cycle_time_s": 60,
+      "loops": 3,
+      "post_close_hold_s": 2,
+      "expected_max_current_a": 0.001
+    }
+  ]
+}
