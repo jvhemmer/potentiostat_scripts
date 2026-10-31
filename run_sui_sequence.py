@@ -9,6 +9,7 @@ import importlib
 import json
 import math
 import queue
+import re
 import sys
 import threading
 import time
@@ -176,6 +177,11 @@ def phase_label(phase: dict[str, Any]) -> str:
     return f"Chopped CA {phase['potential_v']:g} V"
 
 
+def safe_filename(value: str) -> str:
+    name = re.sub(r"[^A-Za-z0-9._-]+", "_", value).strip(" ._")
+    return (name or "phase")[:120]
+
+
 class SequenceRecorder:
     DC_FIELDS = ("workflow_elapsed_s", "phase_number", "phase_name", "phase_type", "instrument_timestamp_s", "illumination_state", "working_electrode_v", "counter_electrode_v", "current_a", "temperature_c")
     AC_FIELDS = ("workflow_elapsed_s", "phase_number", "phase_name", "frequency_hz", "impedance_magnitude_ohm", "impedance_real_ohm", "impedance_imag_ohm", "phase_angle_deg", "working_electrode_dc_v", "dc_current_a")
@@ -195,22 +201,41 @@ class SequenceRecorder:
         self._voltage_history: list[float] = []
         self._current_history: list[float] = []
         self._state_history: list[tuple[float, str]] = [(0.0, "blocked")]
-        self._dc_file = (output / "dc.csv").open("w", newline="", encoding="utf-8")
-        self._ac_file = (output / "eis.csv").open("w", newline="", encoding="utf-8")
+        self._dc_file = None
+        self._ac_file = None
+        self._dc = None
+        self._ac = None
+        self._ac_path: Path | None = None
         self._event_file = (output / "shutter_events.csv").open("w", newline="", encoding="utf-8")
-        self._dc = csv.DictWriter(self._dc_file, fieldnames=self.DC_FIELDS)
-        self._ac = csv.DictWriter(self._ac_file, fieldnames=self.AC_FIELDS)
         self._events = csv.DictWriter(self._event_file, fieldnames=self.EVENT_FIELDS)
-        self._dc.writeheader(); self._ac.writeheader(); self._events.writeheader()
+        self._events.writeheader()
+
+    def _close_phase_files(self) -> None:
+        if self._dc_file is not None:
+            self._dc_file.close()
+        if self._ac_file is not None:
+            self._ac_file.close()
+        self._dc_file = None
+        self._ac_file = None
+        self._dc = None
+        self._ac = None
 
     def begin_phase(self, number: int, phase: dict[str, Any], start: float) -> None:
         with self._lock:
+            self._close_phase_files()
             if self._workflow_start is None:
                 self._workflow_start = start
             self._phase_start = start
             self.phase_number = number
             self.phase_type = phase["type"]
             self.phase_name = phase_label(phase)
+            stem = f"{number:02d}_{safe_filename(self.phase_name)}"
+            dc_path = self.output / f"{stem}.csv"
+            self._ac_path = self.output / f"{stem}_eis.csv"
+            self._dc_file = dc_path.open("w", newline="", encoding="utf-8")
+            self._dc = csv.DictWriter(self._dc_file, fieldnames=self.DC_FIELDS)
+            self._dc.writeheader()
+            print(f"Saving phase {number} data to {dc_path}")
 
     def start(self, start_time: float) -> None:
         with self._lock:
@@ -247,15 +272,25 @@ class SequenceRecorder:
             self._elapsed_history.append(elapsed)
             self._voltage_history.append(float(data.workingElectrodeVoltage))
             self._current_history.append(float(data.current))
+        if self._dc is None or self._dc_file is None:
+            raise RuntimeError("received DC data before a sequence phase started")
         self._dc.writerow({"workflow_elapsed_s": elapsed, "phase_number": self.phase_number, "phase_name": self.phase_name, "phase_type": self.phase_type, "instrument_timestamp_s": data.timestamp, "illumination_state": state, "working_electrode_v": data.workingElectrodeVoltage, "counter_electrode_v": data.counterElectrodeVoltage, "current_a": data.current, "temperature_c": data.temperature})
         self._dc_file.flush()
 
     def ac_data(self, _channel: int, data: Any) -> None:
+        if self._ac is None:
+            if self._ac_path is None:
+                raise RuntimeError("received AC data before a sequence phase started")
+            self._ac_file = self._ac_path.open("w", newline="", encoding="utf-8")
+            self._ac = csv.DictWriter(self._ac_file, fieldnames=self.AC_FIELDS)
+            self._ac.writeheader()
+            print(f"Saving phase {self.phase_number} EIS data to {self._ac_path}")
         self._ac.writerow({"workflow_elapsed_s": self.elapsed(), "phase_number": self.phase_number, "phase_name": self.phase_name, "frequency_hz": data.frequency, "impedance_magnitude_ohm": data.absoluteImpedance, "impedance_real_ohm": data.realImpedance, "impedance_imag_ohm": data.imagImpedance, "phase_angle_deg": data.phaseAngle, "working_electrode_dc_v": data.workingElectrodeDCVoltage, "dc_current_a": data.DCCurrent})
         self._ac_file.flush()
 
     def close(self) -> None:
-        self._dc_file.close(); self._ac_file.close(); self._event_file.close()
+        self._close_phase_files()
+        self._event_file.close()
 
 
 def output_directory(config: dict[str, Any], override: Path | None) -> Path:

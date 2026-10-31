@@ -204,8 +204,10 @@ a sequence file runs that one named experiment; JSON sequence names take
 precedence when a file is supplied. The live plots and stop button remain available. Each chopped CA
 gets its own instrument start event, which defines shutter schedule `t=0`.
 
-Each run folder contains combined `dc.csv`, `eis.csv`, `shutter_events.csv`,
-and `sequence_used.json`. Rows identify their phase number and experiment name.
+Each CV and chopped CA phase gets a numbered CSV, such as
+`01_TBAPF6_anodic_CV.csv` and `02_Chopped_CA_-0.9_V.csv`. EIS data, when
+present, use a matching `_eis.csv` file. Each run folder also contains the
+shared `shutter_events.csv` timeline and `sequence_used.json`.
 
 ### Generate a short chopped-CA potential sweep
 

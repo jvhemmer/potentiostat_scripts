@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from run_sui_sequence import chopped_settings, load_sequence, phase_label
+from run_sui_sequence import SequenceRecorder, chopped_settings, load_sequence, phase_label
 from squidstat_sui import SuiExperimentError, SuiExperimentLibrary
 
 
@@ -138,6 +138,34 @@ class SuiExperimentTests(unittest.TestCase):
             phase_label({"type": "chopped_ca", "potential_v": -0.9}),
             "Chopped CA -0.9 V",
         )
+
+    def test_recorder_creates_one_dc_file_per_phase(self):
+        output = self.root / "run"
+        recorder = SequenceRecorder(output)
+        data = SimpleNamespace(
+            timestamp=0.1,
+            workingElectrodeVoltage=0.2,
+            counterElectrodeVoltage=0.0,
+            current=1e-6,
+            temperature=25.0,
+        )
+        recorder.begin_phase(
+            1,
+            {"type": "sui_experiment", "name": "TBAPF6 anodic CV"},
+            1.0,
+        )
+        recorder.dc_data(0, data)
+        recorder.begin_phase(
+            2,
+            {"type": "chopped_ca", "potential_v": -0.9},
+            2.0,
+        )
+        recorder.dc_data(0, data)
+        recorder.close()
+
+        self.assertTrue((output / "01_TBAPF6_anodic_CV.csv").is_file())
+        self.assertTrue((output / "02_Chopped_CA_-0.9_V.csv").is_file())
+        self.assertFalse((output / "dc.csv").exists())
 
 
 if __name__ == "__main__":
