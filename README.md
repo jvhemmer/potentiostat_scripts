@@ -12,25 +12,20 @@ It writes live DC data to `dc.csv` and impedance data to `eis.csv`.
 
 - Python 3.9 through 3.12
 - [uv](https://docs.astral.sh/uv/getting-started/installation/)
-- Admiral `SquidstatPyLibrary` wheel matching the operating system
 - Squidstat connected by USB and not open in another control program
 
-Create the project environment and install the public dependencies:
+On Windows x86-64, create the project environment:
 
 ```powershell
 uv sync --python 3.12
 ```
 
-Install Admiral's downloaded wheel into the same environment:
+`uv sync` installs Admiral's SquidStat wheel and PySide6 6.7.3 on Windows
+x86-64. You can then use plain `uv run`.
 
-```powershell
-uv pip install 'C:\path\to\SquidstatPyLibrary-VERSION-py3-none-win_amd64.whl'
-```
-
-`SquidstatPyLibrary` is distributed as a platform-specific wheel rather than a
-public package, so it cannot be placed in the shared `uv.lock`. Use
-`uv run --no-sync` after installing the wheel; a normal exact sync could remove
-this manually installed package.
+On other platforms, follow Admiral's Python installation guide to install
+the matching wheel into the project environment. Use `uv run --no-sync`
+after a manual wheel installation to keep that wheel in the environment.
 
 Run all tests:
 
@@ -258,7 +253,7 @@ and data destination. Then run without parameters:
 Or run the Python file directly:
 
 ```powershell
-uv run --no-sync python .\run_ca_chopped_sweep.py
+uv run python .\run_ca_chopped_sweep.py
 ```
 
 The file creates `sequences/generated_ca_chopped_sweep.json`, validates the
